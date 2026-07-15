@@ -1,0 +1,63 @@
+name: "[Emacs][LaTeX] Build"
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - .github/workflows/**
+      - tex/**
+      - img/**
+      - "*.org"
+      - publish.el
+      - Makefile
+      - references.bib
+      - flake.nix
+      - flake.lock
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - .github/workflows/**
+      - tex/**
+      - img/**
+      - "*.org"
+      - publish.el
+      - Makefile
+      - references.bib
+      - flake.nix
+      - flake.lock
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          # Mostly to avoid GitHub rate limiting
+          extra_nix_config: |
+            access-tokens = github.com=${{ github.token }}
+
+      - name: Install Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: "[Slides] Build"
+        run: nix build
+
+      - name: Upload PDF
+        uses: actions/upload-artifact@v7
+        if: github.event_name != 'pull_request'
+        with:
+          name: slides
+          path: result/main.pdf
+          retention-days: 30
+          overwrite: true

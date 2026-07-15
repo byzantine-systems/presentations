@@ -1,0 +1,107 @@
+# Emacs
+# Compiled
+*.elc
+
+# Packaging
+.cask/
+.eask/
+.eldev/
+.keg/
+
+# Built distribution
+dist/
+
+# Backup files
+*~
+
+# Undo-tree save-files
+*.~undo-tree
+
+# direnv
+.direnv/
+.devenv/
+
+# Build outputs
+/public/
+/result
+/result-*
+/build-publish.log
+/build.log
+/debug.log
+
+# Exported artefacts at the repo root (source PDFs under seL4/ are kept)
+/*.pdf
+/*.tex
+
+# LaTeX
+## Core latex/pdflatex auxiliary files:
+*.aux
+*.lof
+*.log
+*.lot
+*.fls
+*.out
+*.toc
+*.fmt
+*.fot
+*.cb
+*.cb2
+.*.lb
+
+## Intermediate documents:
+*.dvi
+*.xdv
+*-converted-to.*
+
+## Bibliography auxiliary files (bibtex/biblatex/biber):
+*.bbl
+*.bbl-SAVE-ERROR
+*.bcf
+*.bcf-SAVE-ERROR
+*.blg
+*-blx.aux
+*-blx.bib
+*.run.xml
+
+## Build tool auxiliary files:
+*.fdb_latexmk
+*.synctex
+*.synctex.gz
+*.pdfsync
+*.rubbercache
+rubber.cache
+
+## beamer
+*.nav
+*.pre
+*.snm
+*.vrb
+
+## minted
+_minted*
+*.data.minted
+*.pyg
+
+## makeidx
+*.idx
+*.ilg
+*.ind
+
+## titletoc
+*.ptc
+
+## TikZ & PGF
+*.dpth
+*.md5
+*.auxlock
+
+## auto folder when using emacs and auctex
+./auto/*
+
+# Nix
+result
+
+# Misc
+public
+2026/**/main.tex
+2026/**/*.pdf

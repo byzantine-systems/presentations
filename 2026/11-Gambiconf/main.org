@@ -1,0 +1,1371 @@
+#+TITLE: Erlang... no MEU microkernel seL4?
+#+AUTHOR: Marcos Benevides \href{https://github.com/schonfinkel}{\faGithub} \href{https://www.linkedin.com/in/schonfinkel/}{\faLinkedin} \href{https://schonfinkel.github.io/}{\faGlobe}
+#+DATE: GambiConf 2026
+#+LANGUAGE: pt
+#+OPTIONS: H:2 num:nil toc:nil \n:nil
+#+STARTUP: beamer
+#+LaTeX_CLASS: beamer
+#+LaTeX_CLASS_OPTIONS: [aspectratio=169,bigger]
+#+BEAMER_THEME: SimplePlus
+#+LATEX_HEADER: \input{./tex/template.tex}
+#+LATEX_HEADER: \addbibresource{./references.bib}
+#+HTML_LINK_UP:
+#+HTML_LINK_HOME: https://byzantine-systems.github.io/presentations
+
+* 1992: Tanenbaum x Torvalds
+
+** "Linux is obsolete"
+
+Em 29 de janeiro de 1992, =comp.os.minix=:
+
+#+begin_quote
+*Andrew Tanenbaum*: Most older operating systems are monolithic, that is, the
+whole operating system is a single a.out file that runs in "kernel mode". This
+binary contains the process management, memory management, file system and the rest. (...)
+
+The alternative is a microkernel-based system, in which most of the OS runs as
+separate processes, mostly outside the kernel.  They communicate by message
+passing.  The kernel's job is to handle the message passing, interrupt handling,
+low-level process management, and possibly the I/O.
+
+[cite: @tanenbaum1992linux]
+#+end_quote
+
++ Linux: kernel monolítico, rápido, pragmático.
++ MINIX: microkernel, pequeno, portável e, sobretudo, didático.
+
+** A provocação de Tanenbaum
+
+#+begin_quote
+*Andrew Tanenbaum*: While I could go into a long story here about the relative
+merits of the two designs, suffice it to say that among the people who actually
+design operating systems, the debate is essentially over. *Microkernels have
+won*. (...)
+
+Don't get me wrong, I am not unhappy with LINUX. *It will get all the people who
+want to turn MINIX in BSD UNIX off my back*.
+
+[cite: @tanenbaum1992linux]
+#+end_quote
+
++ Linux era um passo de volta aos anos 1970.
+
+** Linus ganhou (e com razão)
+
+#+begin_quote
+*Linus Torvalds*: (...) From a theoretical (and aesthetical) standpoint linux
+looses. (...) *Linux wins heavily on points of being available now*.
+
+[cite: @tanenbaum1992linux]
+#+end_quote
+
+#+ATTR_BEAMER: :overlay +-
++ O [[https://www.gnu.org/software/hurd/][GNU Hurd]] ainda não estava pronto, Linux estava.
+  + Software facilmente disponível vence software perfeito.
++ Compatibilidade com Unix/POSIX trouxe aplicações e contribuidores.
++ Performance em hardware real importava mais que elegância.
++ E os microkernels da época (*Mach*) eram *lentos* pra caramba.
+
+** Mas Tanenbaum enxergou o problema certo
+
+*** Blast Radius :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+    #+CAPTION: É um problema de /blast radius/
+    #+ATTR_LATEX: :width \linewidth
+    [[./img/nuclear_blast_radius.jpg]]
+
+*** Intuição                                                   :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Separar serviços virou uma ideia central para sistemas críticos.
+  + TCB[fn:1] importa.
++ Faltava provar que isso podia ser *rápido*.
+
+** TCB Linux \times seL4
+
+# | Monolítico                                | Microkernel                    |
+# |-------------------------------------------+--------------------------------|
+# | drivers, FS, rede no modo privilegiado    | Mecanismos mínimos no kernel   |
+# | ~syscalls~ "baratas"                        | Comunicação explícita          |
+# | Uma falha pode comprometer todo o sistema | Serviços isolados em userspace |
+
+#+ATTR_LATEX: :width \linewidth
+#+CAPTION: Uma falha pode comprometer todo o sistema \times serviçoes isolados em =userspace=. [cite:@heiser2026whitepaper p.5 chap.2 part.2.1]
+[[./img/seL4_01.png]]
+
+* seL4
+
+** A família do microkernel L4
+
+*** Do Eumel ao seL4 :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ *Jochen Liedtke*: Eumel e L3. Depois o L4, com IPC cerca de *20\times mais
+  rápido que o Mach* [cite: @liedtke1993improving].
++ *Família L4*: /Fiasco/, /Pistachio/, /OKL4/ em bilhões de modems Qualcomm, o /Secure Enclave/ da Apple.
++ *UNSW/NICTA (2009)*: Um novo L4 projetado para verificação formal [cite: @klein2009sel4].
+
+*** Intuição                                                        :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+ATTR_LATEX: :width \linewidth
+#+CAPTION: Eumel (1979) $\rightarrow$ L3 (1987/89) $\rightarrow$ L4 (1993) $\rightarrow$ seL4 (2009) [cite:@heiser2026whitepaper p.7 chap.2 part.2.1].
+[[./img/seL4_00.png]]
+
+** On µ-Kernel Construction (1995)
+
+*** Princípio da Minimalidade: 
+:PROPERTIES:
+:BEAMER_ENV: block
+:END:
+
+#+begin_quote
+A concept is tolerated inside the microkernel only if moving it outside the
+kernel, i.e. permitting competing implementations, would prevent the
+implementation of the system's required functionality.
+
+[cite: @liedtke1995construction p.2 part.2]
+#+end_quote
+
+#+ATTR_BEAMER: :overlay +-
++ O kernel é uma apenas uma /engine/ para fazer /context switching/.
++ Cada geração do L4 removeu mais coisas do kernel, e acabou ficando mais rápida.
+
+** Protection Domains (PDs)
+
+# Pense num PD como um processo UNIX, porém mais leve
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Um ambiente para executar /user-level/ code.
++ Entrypoints: =init=, =notify=, =protect= (opcional).
++ Outro entrypoint (=fault=) é necessário caso o *PD* tenha filhos.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+NAME: pd-diagram
+#+BEGIN_SRC dot :file ./img/pd_diagram.png :cmdline -Kdot -Tpng :exports results
+digraph protection_domain {
+    rankdir=TB;
+    pad=0.1;
+    nodesep=0.4;
+    
+    node [
+        fontname="Courier Bold", 
+        fontsize=10,
+        shape=box, 
+        style="filled,rounded", 
+        fillcolor=white, 
+        color="#222222",
+        penwidth=1.5,
+        margin="0.4,0.15"
+    ];
+    
+    edge [style=invis];
+
+    subgraph cluster_domain {
+        label = "PROTECTION DOMAIN";
+        fontname = "Helvetica-Bold";
+        fontsize = 12;
+        fontcolor = white;
+        style = "filled,rounded";
+        fillcolor = "#4082b7";
+        color = "#002b54";
+        penwidth = 2;
+        margin = 24;
+
+        init [label="init()"];
+        notified [label="notified(...)"];
+        protected [label="protected(...)"];
+        //fault [label="fault(...)"];
+
+        init -> notified -> protected;
+    }
+}
+#+END_SRC
+
+#+CAPTION: Por padrão um PD só executa o seu próprio código e nada mais.
+#+ATTR_LATEX: :width 0.6\linewidth
+#+RESULTS: pd-diagram
+[[file:./img/pd_diagram.png]]
+
+** Memory Region (MRs)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Representa um bloco contínup de memória física (normal ou de um driver de dispositivo).
++ Pode ser mapeado em um ou mais PDs (/shared buffers/, /0-copy communication/, ...).
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+NAME: mr-diagram
+#+BEGIN_SRC dot :file ./img/mr_diagram.png :cmdline -Kdot -Tpng :exports results
+digraph memory_region {
+    rankdir=TB;
+    pad=0.1;
+    nodesep=0.4;
+    
+    node [
+        fontname="Courier Bold", 
+        fontsize=10,
+        shape=box, 
+        style="filled,rounded", 
+        fillcolor=white, 
+        color="#222222",
+        penwidth=1.5,
+        margin="0.4,0.15"
+    ];
+    
+    edge [style=invis];
+
+    subgraph cluster_memory_region {
+        label = "MEMORY REGION";
+        fontname = "Helvetica-Bold";
+        fontsize = 12;
+        fontcolor = white;
+        style = "filled,rounded";
+        fillcolor = "#2d8a6e";
+        color = "#003828";
+        penwidth = 2;
+        margin = 24;
+
+        size [label="size = 0x1000"];
+        page_size [label="page_size = 0x1000"];
+        phys_addr [label="phys_addr = 0x..."];
+
+        size -> page_size -> phys_addr;
+    }
+}
+#+END_SRC
+
+#+ATTR_LATEX: :width 0.8\linewidth
+#+RESULTS: mr-diagram
+[[file:./img/mr_diagram.png]]
+
+** Communication Channels (CC)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Comunicação bi-direcional entre dois PDs.
++ Comunicação síncrona (=PPCs=) e assíncrona (=Notifications=).
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+NAME: cc-diagram
+#+BEGIN_SRC dot :file ./img/cc_diagram.png :cmdline -Kdot -Tpng :exports results
+digraph cc {
+    rankdir=LR;
+    bgcolor="transparent";
+    nodesep=1.8;
+
+    node [
+        shape=box,
+        style="filled,rounded",
+        fontname="Helvetica-Bold",
+        fontsize=13,
+        height=1.2,
+        width=2.2,
+        penwidth=1.5
+    ];
+
+    edge [
+        fontname="Helvetica-Bold",
+        fontsize=12,
+        penwidth=2.5,
+        arrowhead="normal",
+        arrowtail="normal",
+        dir=both
+    ];
+
+    // Left Domain
+    pd1 [
+        label="Protection\nDomain (PD)",
+        fillcolor="#C8E6C9",
+        color="#000000",
+        fontcolor="#000000"
+    ];
+
+    // Right Domain
+    pd2 [
+        label="Protection\nDomain (PD)",
+        fillcolor="#FFE0B2",
+        color="#000000",
+        fontcolor="#000000"
+    ];
+
+    // Communication Channel
+    pd1 -> pd2 [
+        label="Communication\nChannel (CC)",
+        color="#000000",
+        fontcolor="#000000"
+    ];
+}
+#+END_SRC
+
+#+ATTR_LATEX: :width \linewidth
+#+RESULTS: cc-diagram
+[[file:./img/cc_diagram.png]]
+
+
+** Notification (I)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Um PD notifica outro PD sobre algum evento.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+NAME: notification-diagram
+#+BEGIN_SRC dot :file ./img/notification_diagram.png :cmdline -Kdot -Tpng :exports results
+digraph sel4_notification {
+    rankdir=TB;
+    node [fontname="Helvetica", fontsize=12];
+    edge [fontname="Helvetica", fontsize=10];
+
+    // Top tier: Protection Domains with notification flags
+    {
+        rank=same;
+        pd_green [
+            shape=box, 
+            style="filled,rounded", 
+            fillcolor="#C8E6C9", 
+            label="Protection\nDomain (PD #1)\n\n🚩 🟩 🟦 🟥", 
+            width=2.5, 
+            height=1.2
+        ];
+        
+        pd_orange [
+            shape=box, 
+            style="filled,rounded", 
+            fillcolor="#FFE0B2", 
+            label="Protection\nDomain (PD #2)\n\n🚩 🟧 🟦 🟥", 
+            width=2.5, 
+            height=1.2
+        ];
+    }
+
+    // Bottom tier: Memory Region
+    {
+        rank=same;
+        mr [
+            shape=box, 
+            style="filled,rounded", 
+            fillcolor="#B0BEC5", 
+            label="MR\n(Memory Region)", 
+            width=2, 
+            height=0.8
+        ];
+    }
+
+    // Dashed lines mapping the MR to both Protection Domains
+    pd_green -> mr [style=dashed, dir=none, constraint=true];
+    pd_orange -> mr [style=dashed, dir=none, constraint=true];
+
+    // Notification signal arrow from the orange PD to the green PD
+    pd_orange -> pd_green [
+        color="#FF8C00", 
+        penwidth=2.5, 
+        constraint=false, 
+        label=" notify ", 
+        style="solid"
+    ];
+}
+#+END_SRC
+
+#+CAPTION: PD 2 notifica sobre um =write= na MR ao PD 1.
+#+ATTR_LATEX: :width 0.8\linewidth
+#+RESULTS: notification-diagram
+[[file:./img/notification_diagram.png]]
+
+** Notification (II)
+
+#+NAME: notification-diagram-2
+#+BEGIN_SRC dot :file ./img/notification_diagram_2.png :cmdline -Kdot -Tpng :exports results
+  digraph seL4_Architecture {
+      graph [
+          rankdir=TD,
+          nodesep=1,
+          ranksep=0.7,
+          fontname="Arial"
+      ];
+
+      node [
+          fontname="Arial-Bold",
+          fontsize=14,
+          fontcolor=white,
+          style=filled,
+          shape=box
+      ];
+
+      edge [
+          fontname="Arial-Bold",
+          fontsize=12,
+          color=black,
+          penwidth=1.8
+      ];
+
+      // Nodes
+      CLIENT [label="CLIENTE", fillcolor="#0B7F9C", width=1.8, height=0.75, fixedsize=true];
+      DRIVER [label="DRIVER", fillcolor="#0B7F9C", width=1.8, height=0.75, fixedsize=true];
+      seL4   [label="seL4", fillcolor="#2EAD33", width=4, height=0.45, fixedsize=true];
+      DEVICE [label="DISPOSITIVO", fillcolor="#000000", width=1.4, height=0.6, fixedsize=true];
+
+      // Horizontal top alignment
+      { rank=same; CLIENT; DRIVER; }
+
+      // Invisible edges to strictly lock vertical layout order (Top -> Middle -> Bottom)
+      DRIVER -> seL4 -> DEVICE [style=invis];
+
+      // Connections
+      CLIENT -> DRIVER [dir=both, label=" Channel "];
+      seL4 -> DRIVER   [label=" Notification "];
+      DEVICE -> seL4   [label=" IRQ "];
+      DRIVER -> DEVICE [label=" MR Access ", splines=true];
+  }
+#+END_SRC
+
+#+CAPTION: /IRQs/ também são modelados como eventos.
+#+ATTR_LATEX: :width 0.6\linewidth
+#+RESULTS: notification-diagram-2
+[[file:./img/notification_diagram_2.png]]
+
+
+** Protected Procedure Calls (PPCs)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Permite que um PD chame código de outro PD.
++ O PD que faz a chamada precisa *confiar* no outro PD.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+NAME: ppc-diagram
+#+BEGIN_SRC dot :file ./img/ppc_diagram.png :cmdline -Kdot -Tpng :exports results
+digraph ppc_subgraphs {
+    rankdir=LR;
+    node [fontname="Helvetica", fontsize=12];
+    edge [fontname="Helvetica", fontsize=10];
+
+    // Left Protection Domain (Server Subgraph)
+    subgraph cluster_server {
+        label="Protection Domain (Server)";
+        style="filled,rounded";
+        fillcolor="#2196F3"; // Blue background
+        color="#1976D2";
+        fontcolor=white;
+        margin=15;
+
+        server_code [
+            shape=box, 
+            style="filled,rounded", 
+            fillcolor="#0a192f", 
+            fontcolor=white, 
+            label="f() {\n    ...\n}",
+            width=1.5,
+            height=1.2
+        ];
+    }
+
+    // Right Protection Domain (Client Subgraph)
+    subgraph cluster_client {
+        label="Protection Domain (Client)";
+        style="filled,rounded";
+        fillcolor="#B0BEC5"; // Gray background
+        color="#78909C";
+        fontcolor=black;
+        margin=15;
+
+        client_code [
+            shape=box, 
+            style="filled,rounded", 
+            fillcolor="#ECEFF1", 
+            fontcolor=black, 
+            label="f(..);\n",
+            width=1.5,
+            height=1.2
+        ];
+    }
+
+    // Edge from the client subgraph node pointing to the server subgraph node
+    client_code -> server_code [
+        label=" Protected Procedure\n Call (PPC) ", 
+        color="#333333", 
+        penwidth=2.0, 
+        style="solid",
+        arrowhead="vee"
+    ];
+}
+#+END_SRC
+
+#+CAPTION: PDs que provém um handler =protected()= são referidos como *servidores*, e os PDs que invocam a =ppcall()= são chamados de *clientes*.
+#+ATTR_LATEX: :width 0.8\linewidth
+#+RESULTS: ppc-diagram
+[[file:./img/ppc_diagram.png]]
+
+* Microkit 
+
+** Microkit (I)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ É um /framework/ para construir sistemas com seL4, que oculta boa parte da complexidade.
++ Simplifica a programação ao impor um modelo de tratamento de eventos.
++ Acaba forçando uma arquitetura estática. 
+
+# No momento da configuração do sistema, todos os componentes e seus canais de comunicação autorizados são conhecidos.
+  
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+CAPTION: Como as abstrações providas pelo Microkit interagem umas com as outras [cite:@heiser2026whitepaper].
+#+ATTR_LATEX: :width \linewidth
+[[./img/seL4_03.png]]
+
+** Microkit (II)
+
+#+CAPTION: Fluxograma dos estados um PD [cite: @microkitmanual].
+#+ATTR_LATEX: :width 0.5\linewidth
+[[./img/event_loop.png]]
+
+#+ATTR_BEAMER: :overlay +-
++ Durante o /boot/ de um sistema com Microkkit, todos os PDs configurados executam
+  o /init entrypoint/.
++ Basicamente um /loop/ de eventos.
+
+** SDF - System Description File (I)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Um arquivo XML que serve de entrada para o Microkit.
++ A raiz (=system=) oferece suporte para três elementos: =protected_domain=,
+  =memory_region=, =channel=.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+CAPTION: Exemplo básico de como configurar um SDF, com apenas um PD e MR.
+#+begin_src xml
+<?xml version="1.0" encoding="UTF-8"?>
+<system>
+  <memory_region name="rtc" size="0x1000"
+                 phys_addr="0x9010000" />
+  <protection_domain name="timer_driver">
+    <program_image path="timer_driver.elf" />
+    <map mr="rtc" vaddr="0x2000000"
+         perms="rw" cached="false"
+         setvar_vaddr="rtc_base_vaddr" />
+  </protection_domain>
+</system>
+#+end_src
+
+** SDF - System Description File (II)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Gera um =.img= e um =report.txt=.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+CAPTION: O arquivo /SDF/ é usado para alocar objetos do kernel e gerar as /syscalls/ necessárias para fazer o /boostrap/ do sistema.
+#+ATTR_LATEX: :width \linewidth
+[[./img/seL4_05.png]]
+
+
+* Mecanismos do seL4
+
+** Capabilities
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Carrega *direitos* (=Read=, =Write=, =Grant=, =GrantReply=)
++ Pode ser copiada, restringida, marcada (=Badge=) e revogada.
+
+# Compare com file descriptor, mas destaque direitos e derivação.
+# As aplicações em /userspace/ modificam o sistema fazendo requisições através
+# de APIs do /kernel/.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+CAPTION: /Capabilities/ são referências para um /kernel object/.
+#+ATTR_LATEX: :width \linewidth
+[[./img/seL4_04.png]]
+
+** Kernel Objects
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
++ /Threads/ (/Thread-Control Blocks/ / TCB).
++ /Scheduling Contexts/ (SCs).
++ /Address Spaces/.
++ /Endpoints/ (/IPC/).
++ /Reply Objects/ (ROs).
++ /Notifications/.
++ /Capability Spaces/ (CNodes).
++ /Frames/.
++ /Interrupt Objects/.
++ /Untyped Memory/.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+ATTR_LATEX: :width \linewidth
+[[./img/seL4_04.png]]
+
+** Thread Control Blocks (TCBs)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.55
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Representa uma /thread/: registradores (SP, IP, ...) e prioridade (0--255).
++ Liga a thread a um *CSpace*, *VSpace*, /IPC buffer/, /fault endpoint/ e /SC/.
++ O kernel não reconhece "processos": um PD é, informalmente, a combinação de TCB + CSpace + VSpace.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.45
+    :END:
+
+#+NAME: tcb-diagram
+#+BEGIN_SRC dot :file ./img/tcb_diagram.png :cmdline -Kdot -Tpng :exports results
+digraph tcb {
+    rankdir=LR;
+    bgcolor="transparent";
+    nodesep=0.25;
+    ranksep=1.1;
+
+    node [
+        shape=box,
+        style="filled,rounded",
+        fontname="Helvetica-Bold",
+        fontsize=22,
+        penwidth=1.5,
+        color="#000000",
+        width=2.6
+    ];
+    edge [penwidth=1.8, arrowhead="vee"];
+
+    tcb [label="TCB\n\nSP, IP, registradores\nprioridade", fillcolor="#4082b7", fontcolor=white, height=4.2];
+
+    cspace [label="CSpace\n(CNode raiz)", fillcolor="#FFE0B2"];
+    vspace [label="VSpace\n(PGD raiz)", fillcolor="#C8E6C9"];
+    ipcbuf [label="IPC buffer\n(Frame)", fillcolor="#B0BEC5"];
+    faultep [label="Fault EP", fillcolor="#FFE0B2"];
+    sc [label="Scheduling\nContext", fillcolor="#C8E6C9"];
+
+    tcb -> cspace;
+    tcb -> vspace;
+    tcb -> ipcbuf;
+    tcb -> faultep;
+    tcb -> sc;
+}
+#+END_SRC
+
+#+CAPTION: O TCB guarda referências para tudo o que a thread usa [cite:@heiser2026course].
+#+ATTR_LATEX: :width 0.9\linewidth
+#+RESULTS: tcb-diagram
+[[file:./img/tcb_diagram.png]]
+
+** Scheduling Contexts (SCs)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.55
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ O direito de usar a CPU: um /budget/ $B$ a cada /period/ $P$.
++ Um /TCB/ sem um /SC/ (ou sem /budget/) nunca será escalonado.
++ Pode ser "*doado*" em uma =Call=: um servidor passivo roda no tempo do
+  cliente (~passive="true"~ no SDF).
+
+# Mecanismo para isolamento temporal: budget = period funciona como uma fatia de tempo round-robin.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.45
+    :END:
+
+#+NAME: sc-diagram
+#+BEGIN_SRC dot :file ./img/sc_diagram.png :cmdline -Kdot -Tpng :exports results
+digraph sc {
+    rankdir=LR;
+    bgcolor="transparent";
+    nodesep=0;
+    ranksep=0;
+
+    node [
+        shape=box,
+        style=filled,
+        fontname="Helvetica-Bold",
+        fontsize=24,
+        penwidth=1.5,
+        color="#000000",
+        height=1.1,
+        label=""
+    ];
+    edge [style=invis];
+
+    subgraph cluster_p1 {
+        label="período P"; fontname="Helvetica-Bold"; fontsize=22;
+        style="rounded"; color="#555555"; margin=10;
+        b1 [fillcolor="#2EAD33", fontcolor=white, width=0.9, label="B"];
+        i1 [fillcolor="#ECEFF1", width=1.5];
+    }
+    subgraph cluster_p2 {
+        label="período P"; fontname="Helvetica-Bold"; fontsize=22;
+        style="rounded"; color="#555555"; margin=10;
+        b2 [fillcolor="#2EAD33", fontcolor=white, width=0.9, label="B"];
+        i2 [fillcolor="#ECEFF1", width=1.5];
+    }
+
+    time [shape=plaintext, style="", label="tempo →", fontname="Helvetica", fontsize=22];
+
+    b1 -> i1 -> b2 -> i2 -> time;
+}
+#+END_SRC
+
+#+CAPTION: A /thread/ usa no máximo $B$ recursos de CPU a cada período $P$. Esgotado o /budget/, sai da fila até a recarga.
+#+ATTR_LATEX: :width \linewidth
+#+RESULTS: sc-diagram
+[[file:./img/sc_diagram.png]]
+
+** Address Spaces (VSpaces)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.55
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Um pequeno /wrapper/ sobre as /page tables/ do hardware: isolamento *espacial*.
++ Mapear exige capabilities: =PageTable_Map= para tabelas, =Page_Map= para
+  /frames/.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.45
+    :END:
+
+#+CAPTION: Cada nível da árvore é um objeto do kernel, mapeado por capability [cite:@heiser2026course].
+#+ATTR_LATEX: :width \linewidth
+[[./img/seL4_vspace.png]]
+
+** Endpoints
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ A abstração fundamental de comunicação: IPC *síncrona*, sem /buffer/ no kernel.
++ /Rendezvous/: um lado bloqueia até o outro estar pronto.
++ O servidor identifica o cliente pelo *badge* da capability usada.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+CAPTION: Sempre uma das duas /threads/ está bloqueada: é como se a /thread/ "mudasse" de /address space/ [cite:@heiser2026course].
+#+ATTR_LATEX: :width \linewidth
+[[./img/seL4_endpoint.png]]
+
+** Reply Objects (ROs)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Um tipo particular de /Endpoint/, para interações entre Clientes e Servidores.
++ A "volta" de uma =Call= é um objeto explícito: o servidor entrega um /RO/ para =Recv= / =ReplyRecv=.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+CAPTION: Como um servidor responde para o cliente, e o SC doado volta junto com a resposta [cite:@heiser2026course].
+#+ATTR_LATEX: :width \linewidth
+[[./img/seL4_ep_ro.png]]
+
+** Capability Spaces (CNodes)
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ CNodes aninhados formam a *CSpace* de uma /thread/.
++ =Copy=, =Mint= (menos direitos + /badge/), =Move= e =Revoke=: é assim que a autoridade é
+  distribuída.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+CAPTION: CNode é uma estrutura de dados que gerencia capabilities [cite:@heiser2026course].
+#+ATTR_LATEX: :width \linewidth
+[[./img/seL4_cspace.png]]
+
+** Frames
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.55
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Páginas de memória física (4 KiB, 2 MiB, 1 GiB), sem semântica para o kernel.
++ O mesmo /frame/ em duas VSpaces = memória compartilhada: base das /MRs/ do
+  Microkit e das filas do sDDF.
+
+# Registradores de dispositivos (MMIO) também são /frames/.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.45
+    :END:
+
+#+NAME: frame-diagram
+#+BEGIN_SRC dot :file ./img/frame_diagram.png :cmdline -Kdot -Tpng :exports results
+digraph frames {
+    rankdir=TB;
+    bgcolor="transparent";
+    nodesep=0.6;
+    ranksep=0.8;
+
+    node [
+        shape=box,
+        style="filled,rounded",
+        fontname="Helvetica-Bold",
+        fontsize=14,
+        penwidth=1.5,
+        color="#000000"
+    ];
+    edge [fontname="Helvetica", fontsize=12, penwidth=1.8, arrowhead="vee"];
+
+    subgraph cluster_a {
+        label="VSpace do PD #1"; fontname="Helvetica-Bold"; fontsize=13;
+        style="filled,rounded"; fillcolor="#C8E6C9"; color="#000000";
+        cap_a [label="frame cap\n(RW)", fillcolor=white];
+    }
+
+    subgraph cluster_b {
+        label="VSpace do PD #2"; fontname="Helvetica-Bold"; fontsize=13;
+        style="filled,rounded"; fillcolor="#FFE0B2"; color="#000000";
+        cap_b [label="frame cap\n(R)", fillcolor=white];
+    }
+
+    frame [label="Frame\n(memória física)", fillcolor="#B0BEC5", width=2.2];
+
+    cap_a -> frame [label=" Page_Map "];
+    cap_b -> frame [label=" Page_Map "];
+}
+#+END_SRC
+
+#+CAPTION: Cada mapeamento precisa da sua própria capability, mesmo para um mesmo /frame/ [cite:@heiser2026course].
+#+ATTR_LATEX: :width 0.9\linewidth
+#+RESULTS: frame-diagram
+[[file:./img/frame_diagram.png]]
+
+** Interrupt Objects
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ =IRQControl=: único, entregue à /root task/; só serve para criar =IRQHandler=.
++ =IRQHandler=: liga a IRQ a uma /notification/ e faz o =Ack=.
++ No Microkit, uma IRQ é só mais um canal: =notified()= + =microkit_irq_ack()=.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+CAPTION: /Interupts/ chegam ao /userspace/ *só* como notificações [cite:@heiser2026course].
+#+ATTR_LATEX: :width \linewidth
+[[./img/seL4_irq.png]]
+
+** Untyped Memory
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Depois do /boot/ o kernel não tem /heap/: toda a memória livre é entregue a uma
+  /root task/ como capabilities /Untyped/.
++ =Untyped_Retype= transforma memória crua em objetos (/TCB/, /CNode/, /Frame/,
+  ...), sempre zerada.
+  + No Microkit isso é feito em /build time/.
++ =Revoke= na Untyped destrói tudo o que foi derivado dela: a memória volta
+  para quem tinha a autoridade.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+CAPTION: Uma árvore de derivação de capabilities [cite:@heiser2026whitepaper].
+#+ATTR_LATEX: :width \linewidth
+[[./img/seL4_capability_tree.png]]
+
+* LionsOS (Mecanismo \rightarrow Sistema)
+
+** LionsOS: Origem
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Autor do manual "Lions' Commentary on UNIX 6th Edition, with Source Code".
++ O "Lions Book" chegou a ser "banido" após o lançamento do UNIX 7, devido a
+  leis de propriedade intelectual.
+  
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+CAPTION: John Lions: cientista da compução australiano.
+#+ATTR_LATEX: :width \linewidth
+[[./img/john_lions.jpeg]]
+
+** LionsOS
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Projeto do grupo [[https://trustworthy.systems/projects/LionsOS/][Trustworthy Systems]] (UNSW Sydney): que buscar melhorar a
+  ergonomia de projetos que dependem do seL4 [cite: @heiser2025lionsos].
++ Você começa com uma folha em branco e escolhe os componentes, os
+  sistemas de I/O e os clientes [cite: @velickovic2024lionsos].
++ Ainda é um projeto experimental, *os mantenendores estão trabalhando na verificação*.
+
+*** Diagrama :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+CAPTION: Os componentes do LionsOS e como ele interage com o Microkit e o seL4.
+#+ATTR_LATEX: :width \linewidth
+[[./img/lionsos_arch.png]]
+
+** sDDF: os /drivers/ já vêm prontos
+
++ Um protocolo padrão por classe de dispositivo: /driver/ $\rightarrow$
+  /virtualiser/ $\rightarrow$ (/copier/) $\rightarrow$ cliente
+  [cite: @sddfdesign].
++ Escrever um cliente é só falar com filas; nenhuma linha de código de hardware.
+
+#+ATTR_LATEX: :font \small
+| Classe sDDF          | No Chrysopolis            |
+|----------------------+---------------------------|
+| serial (UART)        | console do =Eshell=       |
+| timer                | =erlang:monotonic_time()= |
+| block                | módulos OTP (FAT)         |
+| network              | =gen_tcp=                 |
+| I2C, áudio, GPIO ... | não usamos                |
+
+** O que o LionsOS já resolveu para nós
+
+#+ATTR_LATEX: :font \small
+| Já existia (LionsOS)                          | O que escrevemos                            |
+|-----------------------------------------------+---------------------------------------------|
+| /drivers/ + /virtualisers/ sDDF               | /runtime adapter/: POSIX $\rightarrow$ Microkit |
+| musl libc com camada POSIX                    | PD =root= de supervisão e /restart/         |
+| lwIP e servidores de arquivos (FAT/NFS)       | metaprograma do SDF + /build/ Nix/Zig       |
+| =libmicrokitco= (/cothreads/)                 | testes de /boot/ no QEMU                    |
+
+#+ATTR_BEAMER: :overlay +-
++ Nenhum /driver/ novo, nenhuma implementação TCP/IP nova, nenhuma libc nova.
++ Sobrou exatamente um problema: *adaptar o ERTS*.
+
+** As exigências do ERTS
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ /Threads/: /schedulers/, /dirty schedulers/, /async threads/.
++ /Polling/: =epoll= para sockets e para o console.
++ Tempo: relógio monotônico *e* =CLOCK_REALTIME=.
++ Entropia: =getrandom= para /seed/, =rand= e =make_ref/0=.
++ /Filesystem/: o /code loader/ precisa ler =.beam= e o /boot script/.
++ Sockets: o driver =inet=, por baixo do =gen_tcp=.
+
+*** Diagram :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+CAPTION:[[https://www.youtube.com/watch?v=cmt9ucvPlJ4][seL4 and BEAM: A match made in Erlang (Ihor Kuz)]] 
+#+ATTR_LATEX: :width \linewidth
+[[./img/code_beam_talk.jpeg]]
+
+** A camada POSIX do LionsOS
+
+#+ATTR_BEAMER: :overlay +-
++ A =libc= é um /fork/ do =musl= \rightarrow recompilar o ERTS.
++ Já vinha pronto: =clock_gettime= (timer sDDF), =nanosleep= (via /cothreads/),
+  =openat=, FAT =filesystem=, e /sockets/ sobre o =lwIP=.
+
+# *Sem essa camada, portar o ERTS começaria escrevendo uma libc.*
+
+* Chrysopolis: BEAM sobre uma fundação verificada
+
+** Chrysopolis: "Golden City"
+
+** Por que?
+
+*** Kuz :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.45
+    :END:
+
+Ihor Kuz (Kry10), seL4 Summit 2022 e 2023 [cite: @kuz2022beam; @kuz2023crashing]:
+
+#+begin_center
+\large *BEAM* = prevenir + recuperar \\
+\large *seL4* = conter
+#+end_center
+
+*** Chrysopolis :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.55
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ A integração da Kry10 não foi publicada como base aberta e reproduzível.
++ *Chrysopolis*: reimplementação *aberta* da ponte ERTS $\leftrightarrow$ seL4,
+  sobre Microkit e LionsOS.
++ Objetivo: uma fundação *verificável* para Erlang, Elixir e Gleam.
+
+# REIMPLEMENTAÇÃO ABERTA, não fork.
+
+** Motivação
+
+*** Bullet Points :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
++ Eu já estava realizando experimentos com Nix e o seL4.
++ A Gambiconf estendeu o /Call for Papers/ em duas semanas.
++ Eu estava desempregado.
+
+*** Meme :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :BEAMER_envargs: <1->
+    :END:
+
+#+ATTR_LATEX: :width 0.7\linewidth
+[[./img/meme.jpeg]]
+
+** Resultado
+
+*** Stack :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+NAME: tech-stack
+#+BEGIN_SRC dot :file ./img/tech_stack.png :cmdline -Kdot -Tpng :exports results
+digraph TechStackBlock {
+    node [shape=plaintext, fontname="Helvetica,Arial,sans-serif"];
+
+    stack [label=<
+        <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="1" CELLPADDING="20">
+            <TR><TD BGCOLOR="#0F172A" PORT="f0"><FONT COLOR="#FFFFFF"><B>Erlang / OTP</B></FONT></TD></TR>
+            <TR><TD BGCOLOR="#1D4ED8" PORT="f1"><FONT COLOR="#FFFFFF"><B>ERTS</B> <FONT POINT-SIZE="9">(OTP 28, +S 1:1)</FONT></FONT></TD></TR>
+            <TR><TD BGCOLOR="#2563EB" PORT="f2"><FONT COLOR="#FFFFFF"><B>Gambiarra </B> <FONT POINT-SIZE="9">(Chrysopolis)</FONT></FONT></TD></TR>
+            <TR><TD BGCOLOR="#047857" PORT="f3"><FONT COLOR="#FFFFFF"><B>LionsOS </B> <FONT POINT-SIZE="9">(musl, lwIP, FAT, sDDF)</FONT></FONT></TD></TR>
+            <TR><TD BGCOLOR="#059669" PORT="f4"><FONT COLOR="#FFFFFF"><B>Microkit </B> <FONT POINT-SIZE="9">(PDs, canais, SDF)</FONT></FONT></TD></TR>
+            <TR><TD BGCOLOR="#10B981" PORT="f5"><FONT COLOR="#FFFFFF"><B>seL4</B></FONT></TD></TR>
+            <TR><TD BGCOLOR="#D97706" PORT="f6"><FONT COLOR="#FFFFFF"><B>AArch64 / QEMU virt</B></FONT></TD></TR>
+        </TABLE>
+    >];
+}
+#+END_SRC
+
+#+ATTR_LATEX: :width 0.45\linewidth
+#+RESULTS: tech-stack
+[[file:./img/tech_stack.png]]
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+ERTS é linkado estaticamente à =libc.a= do LionsOS, dentro do PD =beam_server=:
+
+#+ATTR_BEAMER: :overlay +-
++ Uma /syscall/ vira *chamada de função*.
++ I/O vira *filas + notificações* (SDF).
++ Consultas para tempo viram *uma PPC* ao =timer_driver=.
++ Módulos OTP chegam de uma partição *FAT*.
+
+** Demo #1
+
+#+LATEX: \scriptsize
+#+begin_src shell
+  run-sel4
+#+end_src
+
+
+** Um pacote até =gen_tcp:recv=
+
+#+NAME: gen-tcp-diagram
+#+BEGIN_SRC dot :file ./img/gen_tcp_diagram.png :cmdline -Kdot -Tpng :exports results
+digraph gen_tcp {
+    rankdir=LR;
+    bgcolor="transparent";
+    nodesep=0.35;
+    ranksep=0.35;
+
+    node [
+        shape=box,
+        style="filled,rounded",
+        fontname="Helvetica-Bold",
+        fontsize=16,
+        height=0.7,
+        penwidth=1.5,
+        color="#000000"
+    ];
+    edge [fontname="Helvetica", fontsize=14, penwidth=1.8];
+
+    nic    [label="NIC", fillcolor="#000000", fontcolor=white];
+    driver [label="eth_driver", fillcolor="#FFE0B2"];
+    virt   [label="net_virt_rx", fillcolor="#FFE0B2"];
+    copy   [label="net_copy", fillcolor="#FFE0B2"];
+    beam   [label="beam_server\nlwIP + ERTS\ngen_tcp:recv", fillcolor="#C8E6C9"];
+    timer  [label="timer_driver", fillcolor="#B0BEC5"];
+
+    nic -> driver [label=" IRQ "];
+    driver -> virt [label=" fila "];
+    virt -> copy [label=" fila "];
+    copy -> beam [label=" fila "];
+    beam -> timer [label=" PPC ", style=dashed, color="#555555"];
+
+    { rank=same; beam; timer; }
+}
+#+END_SRC
+
+#+CAPTION: Cada caixa é um PD isolado. "fila" = memória compartilhada + notificação.
+#+ATTR_LATEX: :width \linewidth
+#+RESULTS: gen-tcp-diagram
+[[file:./img/gen_tcp_diagram.png]]
+
+#+ATTR_BEAMER: :overlay +-
++ Cada PD tem a memória e os canais que lhes convém, declarados no SDF.
++ Se o =eth_driver= cair, o =root= reinicia só ele, e o =beam__server= continua de pé.
+
+** Nix 
+
+*** Nix :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Shell de desenvolvimento hermética usando um =flake.nix=.
++ /Cross-compilation/ do ERTS e da musl =libc.a=.
++ Monta a partição FAT e a =sel4-beam.img=.
++ Roda os múltiplos testes de integração com /QEMU VMs/.
+
+*** Diagram :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+ATTR_LATEX: :width \linewidth
+[[./img/nixos_vm_tests.jpeg]]
+
+** Demo #2
+
+*** Comandos :BMCOL:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+#+LATEX: \scriptsize
+#+begin_src shell
+  # tudo
+  nix flake check -L
+
+  # o driver de rede sofre
+  # um fault real e volta
+nix build -L .#checks.x86_64-linux.restart-smoke
+
+#+end_src
+
+*** Propriedades :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.5
+    :END:
+
+Vários testes bootam imagens reais no QEMU e verificam a serial:
+
+#+ATTR_BEAMER: :overlay +-
++ *funciona*: boot, Eshell, RNG, =gen_tcp=.
++ *quebra*: cada /driver/ sofre um /fault/ real, é reiniciado e o subsistema volta;
++ *desiste*: sem orçamento, o sistema degrada em vez de travar.
+
+** Zig
+
+*** Zig :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
+#+ATTR_BEAMER: :overlay +-
++ Build system pro projeto em C.
++ Faz o links dos nossos /runtime adapters/ com o ERTS.
++ Gera o SDF (/sdfgen/) como um =build.zig=.
+
+*** Diagram :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+ATTR_LATEX: :width \linewidth
+[[./img/zig_logo.png]]
+
+** Futuro
+
+*** Ideas                                                   :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.6
+    :END:
+
++ Total Zig takeover?
++ Criar um orquestrador.
++ Fazer o Karuta/Sakura/RNT rodar no seL4?
+
+*** Diagram :BMCOL:B_block:
+    :PROPERTIES:
+    :BEAMER_col: 0.4
+    :END:
+
+#+CAPTION: Rewrite in Karuta?
+#+ATTR_LATEX: :width \linewidth
+[[./img/karuta_logo.png]]
+
+** Perguntas?
+
+#+begin_center
+\Huge \url{github.com/byzantine-systems/chrysopolis}
+
+\vspace{1em}
+\Large ``Golden City''--- Construída sobre fundações verificadas.
+#+end_center
+
+* Conclusão
+
+** Bibliografia
+  :PROPERTIES:
+  :BEAMER_OPT: fragile,allowframebreaks,label=
+  :END:
+
+#+print_bibliography:
+
+* Footnotes
+
+[fn:1] Trusted Computing Base
