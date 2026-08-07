@@ -1,0 +1,381 @@
+#+TITLE: Erlang... no MEU microkernel seL4?
+#+SUBTITLE: Fundações verificadas para aplicações BEAM
+#+AUTHOR: Marcos Benevides \href{https://github.com/schonfinkel}{\faGithub} \href{https://www.linkedin.com/in/schonfinkel/}{\faLinkedin} \href{https://schonfinkel.github.io/}{\faGlobe}
+#+DATE: GambiConf 2026
+#+LANGUAGE: pt
+#+OPTIONS: H:2 num:nil toc:nil \n:nil
+#+STARTUP: beamer
+#+LaTeX_CLASS: beamer
+#+LaTeX_CLASS_OPTIONS: [aspectratio=169,bigger]
+#+BEAMER_THEME: SimplePlus
+#+LATEX_HEADER: \input{./tex/template.tex}
+#+LATEX_HEADER: \usepackage[backend=bibtex,style=authoryear,maxcitenames=2]{biblatex}
+#+LATEX_HEADER: \addbibresource{./references.bib}
+#+LATEX_HEADER: \titlegraphic{\includegraphics[width=.16\linewidth]{./img/gambiconf_logo.png}}
+#+LATEX_HEADER: \setbeamertemplate{navigation symbols}{}
+#+LATEX_HEADER: \newcommand{\source}[1]{\vfill\scriptsize\color{gray}Fonte: #1}
+
+# Roteiro: 16 slides de conteudo, cerca de 1 minuto por slide, mais transicoes.
+# Meta: terminar em 18 minutos e preservar 2 minutos para perguntas.
+
+* 1992: a flame war que ainda importa
+
+** Linux is obsolete
+
+29 de janeiro de 1992, =comp.os.minix=:
+
+#+begin_quote
+Andrew Tanenbaum: em um microkernel, quase todo o sistema roda em processos
+separados, fora do kernel, comunicando-se por mensagens.
+#+end_quote
+
+- Linux: kernel monolítico, disponível, rápido, pragmatico
+- MINIX: microkernel, pequeno, portavel, sobretudo didático
+- A provocação de Tanenbaum: Linux era um passo de volta aos anos 1970
+
+\source{Debate Tanenbaum--Torvalds, 1992 \parencite{tanenbaumtorvalds1992}}
+
+# Speaker (1:15): conte o contexto, não transforme a discussão em meme.
+
+** Linus ganhou. E com razão.
+
+#+begin_quote
+Linus Torvalds: ``Linux wins heavily on points of being available now.''
+#+end_quote
+
+- O GNU Hurd ainda não estava pronto; Linux estava
+- Compatibilidade Unix/POSIX trouxe aplicações e contribuidores
+- Performance e hardware real importavam mais que elegância
+- Hoje Linux sustenta servidores, nuvens, celulares e embarcados
+
+#+begin_center
+\Large Software que existe vence software perfeito no papel.
+#+end_center
+
+\source{Resposta de Torvalds no debate de 1992 \parencite{tanenbaumtorvalds1992}}
+
+# Speaker (1:00): Linus venceu a disputa prática, não esconda isso.
+
+** Mas Tanenbaum enxergou o problema certo
+
+Não era ``microkernel sempre vence''. Era sobre o *raio de explosão*:
+
+| Monolítico | Microkernel |
+|------------+-------------|
+| drivers, FS, rede no modo privilegiado | mecanismo minimo no kernel |
+| chamada de função barata | IPC explícito |
+| falha pode comprometer o sistema | serviços isolados em user space |
+| TCB enorme | TCB pequeno e analisável |
+
+Separar serviços e comunicar por mensagens virou uma ideia central para
+sistemas críticos. L4 mostrou que isso tambem poderia ser rápido.
+
+\source{Heiser, COMP9242 W01/W08; \textcite{heiser2025whitepaper}}
+
+# Speaker (1:10): ``certo no longo prazo'' significa high assurance, não desktop.
+
+* seL4: isolamento que vira teorema
+
+** Do L3 ao seL4
+
+#+begin_center
+\Large L3 (1993) $\rightarrow$ L4 (1995) $\rightarrow$ seL4 (2009)
+#+end_center
+
+- *Jochen Liedtke*: L3/L4; microkernel rápido, IPC como caminho critico
+- *GMD/IBM/Karlsruhe*: origem da familia L4
+- *UNSW/NICTA, Australia*: novo L4 projetado para verificação
+- 2009: primeira prova de correção funcional de um kernel de uso geral
+- Hoje: projeto open source governado pela *seL4 Foundation*
+
+Não e SELinux. E um kernel diferente, pequeno, capability-based e tambem
+capaz de atuar como hypervisor.
+
+\source{Heiser, COMP9242 W01/W08; \textcite{klein2009sel4}; \textcite{heiser2025whitepaper}}
+
+# Speaker (1:15): ressalte a linhagem e quem construiu, sem biografia longa.
+
+** Linux entrega políticas; seL4 entrega mecanismos
+
+#+begin_center
+\begin{tabular}{c|c}
+\textbf{Linux} & \textbf{seL4} \\\hline
+processos, arquivos, sockets & threads, espacos, IPC \\
+schedulers e drivers & memoria tipada e interrupcoes \\
+API orientada a aplicações & cerca de uma dezena de syscalls \\
+OS quase completo & ``assembly do sistema operacional''
+\end{tabular}
+#+end_center
+
+No seL4, filesystem, rede, drivers e politicas ficam fora do kernel.
+Isso reduz o TCB, mas transfere ao integrador o trabalho de montar um OS.
+
+\source{Heiser, COMP9242 W01; \textcite{heiser2025whitepaper}}
+
+# Speaker (0:55): microkernel não significa ``Linux menor''.
+
+** O que foi provado?
+
+#+begin_center
+\Large especificação $\supseteq$ C $\supseteq$ binario
+#+end_center
+
+- A implementação C refina o modelo abstrato
+- Provas adicionais sustentam integridade e confidencialidade
+- O kernel não inventa autoridade: acessos dependem de capabilities
+- A prova vale sob hipóteses explicitas de hardware, boot e configuração
+
+#+begin_export latex
+\begin{alertblock}{Limite importante}
+seL4 verificado $\neq$ sistema inteiro automaticamente verificado.
+Drivers, componentes e configuração continuam importando.
+\end{alertblock}
+#+end_export
+
+\source{\textcite{klein2009sel4}; \textcite{heiser2025whitepaper}}
+
+# Speaker (1:10): explique refinamento como ``C so faz o que o modelo permite''.
+
+** Capability: uma referência com autoridade
+
+Uma capability e um token inforjável mantido pelo kernel:
+
+- aponta para um *objeto* (endpoint, frame, TCB, CNode...)
+- carrega *direitos* (por exemplo, ler/escrever/conceder)
+- ocupa um slot no *CSpace* do componente
+- pode ser copiada, restringida, marcada (=badge=) e revogada
+
+#+begin_center
+\Large não ha cap $\Rightarrow$ não ha operação
+#+end_center
+
+Autoridade e conectividade sao dadas na construção do sistema, não descobertas
+por um nome global ou por credenciais ambientes.
+
+\source{Heiser, COMP9242 W01-2, slides 3--10; \textcite{heiser2025whitepaper}}
+
+# Speaker (1:05): compare com file descriptor, mas destaque direitos e derivacao.
+
+** Exemplo: chamar um servidor por endpoint
+
+#+begin_example
+Cliente A              seL4                 Servidor
+slot 7: Endpoint cap   ---- Call() -------> ReplyRecv()
+       rights: Write        mensagem
+       badge: 0xA      <---- resposta ------
+#+end_example
+
+1. A so pode enviar porque possui a capability do endpoint.
+2. O kernel entrega =badge 0xA=: o servidor identifica A sem confiar em um ID enviado.
+3. =Mint= cria uma capability derivada, talvez somente =Write=.
+4. =Revoke= remove toda a subarvore derivada dessa autoridade.
+
+O kernel medeia a invocação; o servidor implementa a política.
+
+\source{Heiser, COMP9242 W01-2, slides 4--9 \parencite{heiser2025course}}
+
+# Speaker (1:20): este e o exemplo prático pedido; desenhe o fluxo com o dedo.
+
+* LionsOS: transformar mecanismo em sistema
+
+** seL4 sozinho não é um OS confortável
+
+#+begin_center
+\Large seL4: isolamento comprovado \\
+\Large LionsOS: componentes para construir um sistema util
+#+end_center
+
+Motivação do grupo *Trustworthy Systems, UNSW Sydney*:
+
+- tornar os resultados do seL4 acessiveis na prática
+- oferecer componentes para sistemas embarcados criticos
+- preservar seguranca, confiabilidade e desempenho
+- manter o desenho simples o bastante para futura verificação
+
+LionsOS esta em pesquisa ativa e *ainda não possui uma historia completa de
+verificação*.
+
+\source{\textcite{heiser2025lionsos}; \url{https://www.lionsos.org/}}
+
+# Speaker (1:00): seja claro sobre o status experimental.
+
+** A camada LionsOS
+
+Não e uma distribuição generalista: e um conjunto de peças combinaveis.
+
+- *sDDF*: interfaces de drivers por classe de dispositivo
+- *driver*: traduz hardware para filas; faz uma coisa
+- *virtualiser*: multiplexa clientes, DMA e política
+- *filas SPSC lock-free*: dados em memoria compartilhada
+- *notificações Microkit*: sinalizam trabalho, sem copiar payload
+- bibliotecas e componentes: musl libc, rede, storage, VMs
+
+Arquitetura estática + separacao estrita = menos estado compartilhado e
+componentes menores para raciocinar, substituir e recuperar.
+
+\source{\textcite{heiser2025lionsos}; \textcite{velickovic2024lionsos}; \textcite{sddfdesign}}
+
+# Speaker (1:05): payload na fila, notificacao so toca a campainha.
+
+** Microkit: a sintaxe da arquitetura
+
+#+begin_src xml
+<protection_domain name="beam_server">
+  <map mr="beam_heap" perms="rw" />
+</protection_domain>
+<channel>
+  <end pd="beam_server" id="4" />
+  <end pd="timer_driver" id="1" />
+</channel>
+#+end_src
+
+- *PD*: um ELF, uma thread, um espaco virtual fixo
+- *memory region*: mapeamento explícito com permissões
+- *channel*: notificacao ou chamada protegida entre dois PDs
+- a ferramenta transforma a descrição estática em uma imagem bootavel
+
+\source{Microkit User Manual \parencite{microkitmanual}}
+
+# Speaker (1:05): o XML e ilustrativo; a topologia real de Chrysopolis e gerada em Zig.
+
+** libmicrokitco: várias esperas, uma thread
+
+Microkit oferece um loop de eventos por PD. Software POSIX espera poder bloquear.
+
+#+begin_center
+\Large várias cothreads cooperativas $\rightarrow$ uma kernel thread
+#+end_center
+
+- scheduler FIFO em user space
+- uma cothread espera I/O; outra continua
+- semaforos conectam eventos do =notified()= a quem estava bloqueado
+- não cria paralelismo: organiza concorrência cooperativa dentro do PD
+
+Para Chrysopolis, isso implementa a forma de =pthread= que o ERTS espera sem
+inflar o modelo de threads do Microkit.
+
+\source{README do libmicrokitco \parencite{libmicrokitco}; codigo de Chrysopolis, =src/runtime/process.c=}
+
+# Speaker (1:00): diferencie cothread de processo BEAM e de thread seL4.
+
+* Chrysopolis: BEAM sobre a fundação verificada
+
+** A peça que faltava era aberta
+
+Ihor Kuz/Kry10 demonstrou a afinidade em 2022:
+
+#+begin_center
+\Large BEAM = prevenir + recuperar \\
+\Large seL4 = conter
+#+end_center
+
+Mas o sistema Kry10 e sua integração não foram publicados como uma base aberta
+e reproduzivel. *Chrysopolis nasceu dessa frustracao*: refazer publicamente a
+ponte ERTS--seL4, agora sobre Microkit e LionsOS.
+
+Objetivo: uma fundação verificavel para aplicações Erlang, Elixir e Gleam---não
+alegar que o BEAM ou LionsOS inteiro ja estejam verificados.
+
+\source{Kuz, seL4 Summit 2022/2023 \parencite{kuz2022beam,kuz2023crashing}; \url{https://github.com/byzantine-systems/chrysopolis}}
+
+# Speaker (1:05): diga ``reimplementação aberta'', não ``fork''.
+
+** A pilha que realmente inicializa
+
+#+begin_example
+Gleam / Erlang / OTP
+        ERTS 28.5
+runtime adapter: pthread -> cothreads, syscalls, RNG
+LionsOS: musl + lwIP + FAT + sDDF drivers
+Microkit: PDs + channels + system image
+seL4
+AArch64 / qemu_virt
+#+end_example
+
+ERTS e linkado estaticamente ao =libc.a= do LionsOS. Chamadas POSIX viram
+serviços e IPC, não syscalls Linux. Modulos OTP e a aplicacao chegam por um
+filesystem FAT; =gen_tcp= atravessa lwIP e o subsistema de rede sDDF.
+
+\source{Chrysopolis =README.md=, =src/runtime/= e =modules/= (revisao local, ago. 2026)}
+
+# Speaker (1:15): este e o ``como'' central do projeto.
+
+** Nix decide; Zig monta
+
+#+begin_center
+\begin{tabular}{p{.42\linewidth}|p{.45\linewidth}}
+\textbf{Nix / flake-parts} & \textbf{Zig build} \\\hline
+fixa todas as revisões & compila PDs e drivers sDDF \\
+cross-compila ERTS e musl & constrói libmicrokitco \\
+produz FAT e imagens & linka runtime adapter + ERTS \\
+orquestra testes QEMU & gera a descrição Microkit
+\end{tabular}
+#+end_center
+
+=nix build .#test-image= produz =sel4-beam.img= sem fetch durante o build.
+Nix e a autoridade de dependencias; Zig e o metaprograma de build e link.
+
+\source{Chrysopolis =flake.nix=, =modules/*.nix=, =build.zig= e =tools/sdf/=}
+
+# Speaker (1:05): enfatize fronteira deliberada, não ``duas build systems por acidente''.
+
+** Testar o impossível: bootar de verdade
+
+#+begin_src shell
+nix flake check -L
+nix build .#checks.x86_64-linux.tcp-smoke -L
+nix build .#checks.x86_64-linux.blk-restart-smoke -L
+#+end_src
+
+Onze testes sobem imagens reais no QEMU e inspecionam a serial:
+
+- boot, Eshell, RNG, sockets e =gen_tcp= nos dois sentidos
+- falha de um PD, restart com limite e =give up=
+- restart de serial, timer, bloco e rede; servico deve continuar
+- módulos Erlang de teste compilados com =warnings_as_errors=
+
+Reprodutibilidade aqui inclui o experimento: entrada fixada, imagem bootavel e
+critério observável.
+
+\source{Chrysopolis =tests.nix=, =tests/*.erl= e =modules/checks.nix=}
+
+# Speaker (1:10): se houver demo, substitua este slide pelo shell ao vivo.
+
+** O que temos---e o que falta
+
+#+begin_center
+\Large hoje: kernel verificado + sistema testado \\
+\Large destino: fundação cada vez mais verificavel e recuperável
+#+end_center
+
+- *Temos*: isolamento seL4, topologia explicita, BEAM funcional, build hermetico
+- *Exploramos*: componentes/driver PDs reiniciáveis e degradação controlada
+- *Ainda falta*: SMP real, mais drivers/plataformas, distribuição BEAM, provas acima do kernel
+
+#+begin_export latex
+\begin{alertblock}{A tese}
+Tanenbaum ofereceu a intuição; seL4, a garantia; LionsOS, as peças; BEAM, a
+recuperação; Nix e Zig tornam a gambiarra repetível.
+\end{alertblock}
+#+end_export
+
+\source{Chrysopolis =issues/= e estado do código em agosto de 2026}
+
+# Speaker (1:00): encerre antes dos 19 minutos.
+
+** Perguntas?
+
+#+begin_center
+\Huge \url{github.com/byzantine-systems/chrysopolis}
+
+\vspace{1em}
+\Large ``Golden City''---construida sobre fundações verificadas.
+#+end_center
+
+\source{Slides e referencias: \url{github.com/byzantine-systems/presentations}}
+
+* Referencias :noexport:
+
+** Bibliografia :noexport:
+
+\printbibliography

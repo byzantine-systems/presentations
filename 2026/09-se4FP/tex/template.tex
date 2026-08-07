@@ -1,0 +1,39 @@
+%--------------------------------------
+%             Fonts / encoding
+%--------------------------------------
+% publish.el drives lualatex, but keep the pdflatex path working too.
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[utf8]{inputenc}
+  \usepackage[T1]{fontenc}
+\else
+  \usepackage{fontspec}
+  % Latin Modern keeps the stock Beamer look but has no box-drawing glyphs, and
+  % the architecture diagrams are full of them.  Fall back to DejaVu for any
+  % codepoint Latin Modern is missing instead of silently dropping it.
+  \directlua{
+    luaotfload.add_fallback("lmfallback", {
+      "DejaVuSans:mode=node;script=latn;",
+      "DejaVuSansMono:mode=node;script=latn;",
+    })
+  }
+  \setmainfont{Latin Modern Roman}[RawFeature={fallback=lmfallback}]
+  \setsansfont{Latin Modern Sans}[RawFeature={fallback=lmfallback}]
+  % Verbatim gets DejaVu Sans Mono outright: full box-drawing coverage.
+  \setmonofont{DejaVu Sans Mono}[Scale=MatchLowercase]
+\fi
+\usepackage{fontawesome}
+%--------------------------------------
+
+%Portuguese-specific commands
+%--------------------------------------
+\usepackage[portuguese]{babel}
+%--------------------------------------
+
+%Hyphenation rules
+%--------------------------------------
+\usepackage{hyphenat}
+\hyphenation{mate-mática recu-perar micro-kernel}
+%--------------------------------------
+\definecolor{links}{HTML}{2A1B81}
+\hypersetup{colorlinks,linkcolor=,urlcolor=links}

@@ -1,0 +1,508 @@
+#+TITLE: Eparch
+#+SUBTITLE: Uma investigação sobre Máquinas de estado tipadas na BEAM
+#+AUTHOR: Marcos Benevides \href{https://github.com/schonfinkel}{\faGithub} \href{https://www.linkedin.com/in/schonfinkel/}{\faLinkedin} \href{https://schonfinkel.github.io/}{\faGlobe}
+#+DATE: SE4FP 2026 --- São Paulo, 8 de setembro de 2026
+#+LANGUAGE: pt
+#+OPTIONS: H:2 num:nil toc:nil \n:nil
+#+STARTUP: beamer
+#+LaTeX_CLASS: beamer
+#+LaTeX_CLASS_OPTIONS: [aspectratio=169,bigger]
+#+BEAMER_THEME: SimplePlus
+#+LATEX_HEADER: \input{./tex/template.tex}
+#+LATEX_HEADER: \usepackage[backend=bibtex,style=authoryear,maxcitenames=2]{biblatex}
+#+LATEX_HEADER: \addbibresource{./references.bib}
+#+LATEX_HEADER: \setbeamertemplate{navigation symbols}{}
+#+LATEX_HEADER: \newcommand{\source}[1]{\vfill\scriptsize\color{gray}Fonte: #1}
+
+* Introdução
+
+** Quem sou eu?
+
++ Marcos Benevides --- engenheiro de software e devops.
++ Trabalho com F# e OCaml, brinco com Erlang/Elixir/Gleam e Nix/NixOS.
++ Esta história começou com uma lacuna "pequena" no ecossistema...
+
+#+begin_center
+\Large ``Como escrevo um =gen_statem= idiomático em Gleam?''
+#+end_center
+
++ A biblioteca [[https://github.com/gleam-lang/otp][gleam/otp]] não suporta o ~gen_statem~ diretamente ([[https://github.com/gleam-lang/otp/issues/50][ISSUE 50]] no repositório).
++ [[https://github.com/byzantine-systems/eparch][Eparch]], uma biblioteca mantida pela [[https://byzantine-systems.github.io/][Byzantine Systems]].
+
+** A tese desta apresentação
+
+#+begin_center
+\Large Tipar mensagens não basta. \\
+\Large Precisamos tipar a \alert{ordem} da conversa.
+#+end_center
+
+1. Primeiro: tornar =gen_statem= e =gen_event= utilizáveis em Gleam.
+2. Depois: impedir transições e mensagens incompatíveis.
+3. Finalmente: tratar protocolos como objetos que projetamos, comparamos, compomos e/ou geramos.
+
+Eparch é uma biblioteca prática e, ao mesmo tempo, uma bancada de experimentos.
+
+# Speaker (1:00): antecipe o arco wrappers -> posições -> protocolos.
+
+* Motivação
+
+** A BEAM é dinâmica por design
+
+- Processos isolados e mailboxes sem tipo em runtime.
+- Qualquer termo pode atravessar uma fronteira Erlang.
+- OTP padroniza ciclo de vida, supervisão e introspecção.
+- ~gen_statem~ padroniza máquinas orientadas a eventos
+
+#+begin_center
+\Large Estado $\times$ Evento $\rightarrow$ Ações $\times$ Próximo Estado
+#+end_center
+
+OTP oferece o motor e a disciplina operacional. Ele não prova que o evento faz
+sentido naquele estado nem que dois participantes concordam sobre a conversa.
+
+\source{Erlang/OTP gen\_statem Design Principles \parencite{otpstatem}}
+
+# Speaker (1:05): não venda dinamismo como defeito; ele é parte do modelo.
+
+** Erlang: Dialyzer procura discrepâncias
+
+Dialyzer analisa source/BEAM usando *success typings*:
+
+- encontra erros de tipo definidos, código inalcançável e testes redundantes
+- aceita programas sobre os quais não consegue provar uma discrepância
+- tipos descrevem valores que funções aceitam e retornam
+- excelente compatibilidade com código Erlang existente
+
+#+begin_center
+\Large análise estática gradual, sem transformar Erlang em ML
+#+end_center
+
+Mas um =pid()= e uma mensagem bem tipada ainda não dizem *quando* enviá-la.
+
+\source{Erlang/OTP Dialyzer User's Guide \parencite{dialyzer}}
+
+# Speaker (1:05): success typing não é o mesmo contrato de uma linguagem estática.
+
+** Elixir: tipos graduais e de conjuntos
+
+O compilador Elixir incorpora um sistema:
+
+- *gradual*: =dynamic()= marca o que depende de runtime
+- *set-theoretic*: união, interseção e negação
+- inferido a partir de padrões e guards
+- compatível com bases existentes, hoje exposto sobretudo como warnings
+
+É um caminho ambicioso para encontrar bugs sem exigir uma reescrita tipada.
+Assinaturas set-theoretic explícitas permanecem parte do roadmap.
+
+\source{Documentação oficial do Elixir \parencite{elixirtypes}; \textcite{castagna2023}}
+
+# Speaker (1:05): status em 2026; não diga que Elixir já é totalmente tipado.
+
+** Gleam escolheu outro ponto no espaço
+
+- tipos algébricos, pattern matching exaustivo e inferência HM
+- genéricos paramétricos; tipos opaque e phantom
+- interoperabilidade direta com Erlang via =@external=
+- biblioteca =gleam/otp= centrada em actors e supervision
+
+Mas =gleam/otp= não expõe =gen_statem= nem =gen_event=. Ao tentar preencher
+essa lacuna, encontramos o verdadeiro problema:
+
+#+begin_center
+\Large como preservar tipos através de uma fronteira dinâmica?
+#+end_center
+
+\source{\url{https://hexdocs.pm/gleam_otp/}; \textcite{eparchpaper}}
+
+# Speaker (1:10): este foi o início do rabbit hole.
+
+** Por que =gen_statem=?
+
+=gen_server= organiza estado. =gen_statem= torna a *transição* explícita:
+
+- chamadas, casts, info, eventos internos e entrada de estado
+- postpone e self-generated events
+- timeouts de estado, evento e genéricos nomeados
+- troca de callback module, hibernação, =sys= e supervisão
+
+Casos reais: autenticação, protocolos de rede, dispositivos, workflows,
+coordenação distribuída.
+
+#+begin_center
+\Large Se o domínio já tem estados, escondê-los piora o programa.
+#+end_center
+
+\source{Erlang/OTP gen\_statem Reference Manual \parencite{otpstatem}}
+
+# Speaker (1:00): contextualize os recursos que a wrapper precisa preservar.
+
+* Estrutura do projeto
+
+** Eparch em três camadas
+
+#+begin_example
+eparch/protocol/*       especificar, projetar, comparar, gerar
+        |
+eparch/session/*        posições phantom + provas de dualidade
+        |
+protocol_machine       dirige posições com gen_statem
+        |
+state_machine / event_manager
+        |
+statem_ffi.erl / event_manager_ffi.erl -> OTP
+#+end_example
+
+- wrappers OTP são úteis de forma independente
+- o núcleo de session types é puro e não faz I/O
+- a camada de especificação roda em desenvolvimento e gera código commitado
+
+# Speaker (1:15): dependências apontam para baixo; protocol/* fica separado de session/*.
+
+** =gen_statem= por fora: uma API Gleam
+
+#+begin_src gleam
+sm.new(initial_state: Off, initial_data: 0)
+|> sm.with_state_enter()
+|> sm.on_event(fn(event, state, count) {
+  case event, state {
+    sm.Call(from, Push), Off ->
+      sm.next_state(On, count + 1, [sm.reply(from, On)])
+    _, _ -> sm.keep_state(count, [])
+  }
+})
+|> sm.start_link
+#+end_src
+
+Builder imutável + ADTs: estado, evento, dado, reply, ação e resultado são
+amarrados pelos mesmos parâmetros de tipo.
+
+\source{Eparch \nolinkurl{src/eparch/state_machine.gleam}; \textcite{eparchpaper}}
+
+# Speaker (1:20): destaque a assinatura do handler, não cada linha.
+
+** =gen_statem= por dentro: uma callback Erlang
+
+#+begin_src erlang
+-behaviour(gen_statem).
+
+handle_event(Type, Content, State, Record) ->
+    Event = classify(Type, Content, Record),
+    Step = (Record#gleam_statem.gleam_handler)(
+             Event, State, Record#gleam_statem.gleam_data),
+    lower_step(Step, Record).
+#+end_src
+
+- OTP chama =statem_ffi.erl=
+- a FFI classifica tuples/atoms em construtores Gleam
+- o handler Gleam devolve um =Step= tipado
+- Erlang reduz o =Step= ao tuple protocolado por OTP
+
+\source{Eparch \nolinkurl{src/statem_ffi.erl} e \nolinkurl{state_machine.gleam}}
+
+# Speaker (1:15): o snippet é pseudocódigo fiel; explique a tradução bidirecional.
+
+** A fronteira FFI é um contrato de confiança
+
+#+begin_center
+\Large Gleam acredita em =@external= e Erlang precisa cumprir.
+#+end_center
+
+=Builder(...)= vira um tuple Erlang. =Option= vira =none | {some, V}=.
+Renomear um construtor ou reordenar campos pode compilar e falhar em runtime.
+
+Mitigações em Eparch:
+
+- FFI pequena e concentrada
+- pattern matching explícito nos dois lados
+- fallbacks =Dynamic= para shapes abertos do OTP
+- testes de integração exercitam processos reais
+
+# Speaker (1:05): static typing termina onde começa um external incorreto.
+
+** O que Gleam não tem: GADTs
+
+Queremos que uma transição refine sua posição:
+
+#+begin_example
+Send(message, then)  --send-->  then
+Recv(message, then)  --recv-->  then
+#+end_example
+
+Sem GADTs, um construtor não pode refinar um parâmetro de tipo. Marcadores
+vazios deixam a posição livre e não provam nada.
+
+A saída: cada marcador *carrega a continuação* e cada função pública fixa, em
+sua assinatura, exatamente o marcador que remove.
+
+#+begin_src gleam
+send: (Channel(Send(msg, next), wire), msg)
+   -> #(msg, Channel(next, wire))
+#+end_src
+
+# Speaker (1:20): este é o truque tipado mais importante da implementação.
+
+** O que Gleam não tem: módulos e metaprogramação
+
+Comparado à família ML, módulos Gleam são principalmente namespaces:
+
+- sem functors/módulos parametrizados ou first-class modules
+- sem traits ou type classes
+- sem macros e sem funções no nível de tipos
+- sem reflexão de tipos para gerar codecs/protocolos
+
+Consequências:
+
+- dualidade não pode ser calculada: precisa de uma testemunha explícita
+- payloads na especificação são nomes em strings, validados no código gerado
+- boilerplate da FFI continua manual
+
+# Speaker (1:10): simplicidade de Gleam é uma escolha, não apenas uma ausência.
+
+** O que Gleam não tem: linearidade e recursão de tipos
+
+Session types tradicionais querem uso linear do channel:
+
+- não duplicar, reutilizar ou delegar depois de avançar
+- Rust usa ownership/affine types para garantir isso
+- Gleam permite aliasing: Eparch não promete linearidade
+
+E protocolos com loop exigiriam um alias recursivo:
+
+#+begin_src gleam
+type Session = Offer(Deposit(Session), Quit(Done))
+// error: Type cycle
+#+end_src
+
+A camada phantom cobre protocolos finitos de duas partes. Loops e multiparty
+pedem outra representação.
+
+# Speaker (1:20): diga explicitamente o que Eparch ainda não garante.
+
+** Cobertura prática, não uma toy API
+
+Eparch acompanha recursos modernos de =gen_statem=:
+
+- =state_enter=, postpone, next events e três classes de timeout
+- cancel/update de timeout; hibernação
+- =start_monitor= e chamadas assíncronas
+- request-id collections e respostas seletivas
+- =format_status= tipado; callback module stack
+- nomes local/global/via e opções de spawn/debug
+
+Cada API declara seu piso de versão OTP. A wrapper preserva supervisão,
+introspecção e semântica operacional do runtime.
+
+# Speaker (1:00): evite ler a lista inteira; mostre que não é só start/cast.
+
+* O experimento com Session Types
+
+** Tipos comuns descrevem mensagens; session types, conversas
+
+#+begin_example
+Teller = Recv(Card,
+         Choose(
+           Send(Balance, Done),
+           Done))
+#+end_example
+
+- =Send/Recv=: direção, payload e continuação
+- =Choose/Offer=: quem decide e quem acompanha
+- =Done=: nenhuma obrigação pendente
+- o cliente dual faz =Send= onde o teller faz =Recv=, e =Offer= onde ele faz =Choose=
+
+\source{Session types para actors em \textcite{fowler2015,fowler2019}}
+
+# Speaker (1:20): leia o protocolo como uma frase, não como sintaxe.
+
+** Caminhar pelo protocolo muda o tipo
+
+#+begin_src gleam
+let channel = customer(teller)
+let #(card, channel) = core.send(channel, "4111")
+let channel = core.offered_left(channel)
+let channel = core.receive(channel, 100)
+let details = core.finish(channel)
+#+end_src
+
+Cada chamada consome um marcador e retorna a continuação. O compilador rejeita:
+
+- enviar quando deveria receber
+- payload errado ou branch do participante errado
+- =finish= antes de =Done=
+- continuação de uma state machine na posição errada
+
+\source{Eparch \nolinkurl{docs/Session_Types.md} e \nolinkurl{session/core.gleam}}
+
+# Speaker (1:15): são typestate/phantom positions; valores somem em runtime.
+
+** Dualidade como valor-testemunha
+
+Gleam não calcula =Dual(P)=. Eparch constrói uma prova finita:
+
+#+begin_src gleam
+pub fn proof() -> duality.Dual(Teller, Customer) {
+  duality.receive(
+    duality.choose(
+      duality.send(duality.done()),
+      duality.done(),
+    ),
+  )
+}
+#+end_src
+
+Cada combinador codifica uma regra. Se a função compila, os protocolos finitos
+são duais. A testemunha é vazia e desaparece em runtime.
+
+\source{Eparch \nolinkurl{session/duality.gleam}; dualidade em \textcite{keizer2020}}
+
+# Speaker (1:15): chame de testemunha, não de prova formal do programa inteiro.
+
+** De channel tipado para =gen_statem=
+
+=protocol_machine= liga posição estática e estado OTP:
+
+#+begin_example
+Position: phantom type     atm.Serving
+Tag:      gen_statem state Serving
+Data:     runtime value    balance = 500
+#+end_example
+
+- =ProtocolState= esconde a posição em uma closure (existencial manual)
+- transições recebem o channel ao qual se aplicam
+- a continuação deriva do protocolo, nunca é escolhida livremente
+- =advance_now= usa um internal event; callbacks nunca bloqueiam esperando I/O
+
+O loop de recepção pertence ao OTP, não à biblioteca de session types.
+
+\source{Eparch \nolinkurl{protocol_machine.gleam} e exemplo \nolinkurl{examples/atm}}
+
+# Speaker (1:20): enfatize que receive bloqueante quebraria timeouts e supervisão.
+
+** Loops e multiparty: protocolo como grafo
+
+#+begin_src gleam
+spec.Protocol(
+  name: "atm", roles: ["Client", "Atm"],
+  initial: "AwaitingCard", imports: [],
+  spec: spec.Message("Client", "Atm", "card", "CardId",
+    spec.Loop("session", ...)),
+)
+#+end_src
+
+1. uma especificação global é um valor Gleam
+2. =graph.compile= valida e projeta uma visão finita para cada role
+3. loops viram arestas; não aliases recursivos
+4. =emit= gera marcadores e rotas tipadas por participante
+5. o código gerado é commitado, compilado e verificado contra a spec
+
+\source{Eparch módulos protocol/spec, graph e emit; MPST em \textcite{harvey2021}}
+
+# Speaker (1:25): global -> projection -> local generated API.
+
+** Comparar protocolos por coindução
+
+Um grafo finito permite decidir relações mesmo com ciclos:
+
+- *duality*: send casa com receive; choose com offer
+- *equivalence*: mesmo comportamento, apesar de nomes diferentes
+- *subtyping*: a mudança é segura para participantes existentes?
+- pares já vistos fecham a hipótese coindutiva e garantem terminação
+
+#+begin_center
+\Large protocolo = comportamento potencialmente infinito \\
+\Large representação = grafo finito
+#+end_center
+
+É a leitura operacional das session coalgebras aplicada a um dev-time tool.
+
+\source{\textcite{keizer2020}; Eparch \nolinkurl{protocol/relations.gleam}}
+
+# Speaker (1:15): coindução observa comportamento; não desenrole o loop para sempre.
+
+** Compor protocolos por interleaving
+
+Aplicações executam vários protocolos ao mesmo tempo: autenticação + pagamento,
+sessão + auditoria, negociação + timeout.
+
+Eparch implementa as regras de Bocchi, Orchard e Voinea:
+
+- =Assert=: estabelece uma garantia
+- =Require=: exige e preserva
+- =Consume=: exige e gasta
+- =weave=: produz candidatos de interleaving, ranqueados e deduplicados
+
+Depois, projeção valida o candidato escolhido. Os testes reproduzem as contagens
+da Tabela 1 do artigo como oráculo semântico.
+
+\source{\textcite{bocchi2023}; Eparch \nolinkurl{protocol/weave.gleam}}
+
+# Speaker (1:20): composição não é concatenação; preserva dependências entre protocolos.
+
+** Assincronia e falha são o próximo confronto
+
+Session types clássicos simplificam coisas que a BEAM torna explícitas:
+
+- mensagens assíncronas podem chegar fora de ordem
+- selective receive, mailbox e eventos adiados
+- participantes falham, reiniciam e mudam de versão
+- mixed choice representa corridas que directed choice evita
+
+Trabalhos em Erlang usam monitoramento dinâmico ou geram módulos =gen_statem=.
+Eparch quer descobrir quanto pode ser estático sem lutar contra OTP.
+
+\source{\textcite{fowler2015,fowler2019,bocchi2026}; MPST em \textcite{harvey2021}}
+
+# Speaker (1:15): este é o programa de pesquisa, não uma feature concluída.
+
+* Conclusão
+
+** O que aprendemos
+
+- Wrappers tipadas tornam OTP acessível sem esconder suas capacidades.
+- ADTs e phantom types eliminam classes úteis de erros.
+- O FFI permanece parte do trusted computing base da biblioteca.
+- Sem linearidade, não devemos prometer ownership/delegation seguros.
+- Sem tipos recursivos, grafos + geração vencem onde aliases falham.
+- Session Types conectam tipos de dados à ordem causal das mensagens
+
+#+begin_export latex
+\begin{alertblock}{A ideia central}
+Eparch não substitui OTP: usa o sistema de tipos de Gleam para tornar explícitas
+as obrigações que OTP executará em runtime.
+\end{alertblock}
+#+end_export
+
+# Speaker (1:10): recapitule as garantias e os limites na mesma respiração.
+
+** Onde queremos chegar
+
+#+begin_center
+\Large especificar $\rightarrow$ projetar $\rightarrow$ gerar \\
+\Large executar $\rightarrow$ observar $\rightarrow$ evoluir
+#+end_center
+
+Próximos experimentos:
+
+- ergonomia e mensagens de erro da API gerada
+- compatibilidade/subtyping em evolução de protocolos
+- composição intercalada em exemplos reais
+- falhas, restart e progresso sob semântica assíncrona
+- reduzir boilerplate FFI sem fingir que a fronteira desapareceu
+
+# Speaker (1:00): convide críticas sobre a fronteira entre teoria e OTP real.
+
+** Obrigado! Perguntas?
+
+#+begin_center
+\Huge \url{github.com/byzantine-systems/eparch}
+
+\vspace{1em}
+\Large Tipos para valores. Protocolos para conversas.
+#+end_center
+
+* Referências :noexport:
+
+** Bibliografia :noexport:
+
+\printbibliography
